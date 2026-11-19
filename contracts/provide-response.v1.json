@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "docs": [
+    {
+      "id": "ced:balance",
+      "title": "CED 해설: balance",
+      "text": "걸림: 바뀐 줄 3회, PR 설명 1회\n위치: bank_accounts.balance, users.balance\n\n# balance\n\n목차: [[rwa]]\n\n## 정의\n\n개인 User 대상 계좌 잔액 기준 총 금액의 합산\n\n## 출현 목록\n\n- `bank_accounts.csv` · `balance` (integer, NN)\n- `users.csv` · `balance` (integer, NN)\n\n## 값의 뜻\n\n개별 값은 계좌 혹은 User가 가진 잔액을 나타낸다. 주체는 계좌일 수 있으며, User의 계좌 합산 금액의 총액 (Sum)일 수 있다.\n\n## 설명\n\n1. 개별 계좌는 잔액 값을 가진다. 그 잔액 값을 의미한다.\n2. 유저가 여러 계좌를 가지고 있고, 개별 계좌에 잔액이 있을 때. 그 합산 수치로도 쓰인다.\n"
+    }
+  ],
+  "notices": []
+}

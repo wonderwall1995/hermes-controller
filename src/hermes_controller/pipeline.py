@@ -1,25 +1,26 @@
-"""파이프라인 하나: 요청 파일 읽기 → PR 정보 → 해설 → 해설 파일 → testgate 래퍼.
+"""run: 요청 하나를 끝까지 처리한다. 요청 파일 → (맥락) → 프로젝트 실행 → 세션 이름.
 
-가장 중요한 약속: **어떤 오류가 나도 마지막에 testgate 래퍼를 실행한다.**
-해설 준비 전체를 try로 감싸고 래퍼 실행은 finally에 둔다. 그래서 해설을 못 만들어도, PR 정보를 못 가져와도,
-예상 밖 오류가 나도, 중단 신호가 와도 분석은 일어난다. 해설을 못 만든 경우는 해설 파일에 사유 코드를 남겨
-보고서 비고에 한 줄이 남게 한다(해설 없이 분석함).
+가장 중요한 약속: **요청 파일과 규칙이 올바르면, 어떤 오류가 나도 프로젝트를 실행한다.**
+맥락 준비 전체를 try로 감싸고 프로젝트 실행은 finally에 둔다. 맥락을 못 만들면 맥락 파일에 사유 코드만 남겨
+프로젝트가 "맥락 없이 일했다"는 것을 알 수 있게 한다.
 
-기록(로그)에는 배달 ID, 단계, 사유 코드, 오류의 종류와 위치만 쓴다. 요청 내용, PR 제목과 diff, 해설 본문,
-서명 키, 오류 메시지는 쓰지 않는다. 예상 밖 예외의 메시지에 요청 내용이 섞일 수 있기 때문이다.
+맥락은 규칙의 context가 참이고 PR 대화창의 요청(target=pull_request)일 때만 만든다. 늘 PR 전체 diff로 고른다.
+controller는 코멘트 문법(커밋ID 등)을 모르기 때문이다. 용어집은 PR 전체 기준이어도 문제가 없다.
+
+기록(로그)에는 배달ID, 단계, 사유 코드, 오류의 종류와 위치만 쓴다. 요청 내용, PR 제목과 diff, 맥락 본문,
+서명 키, 오류 메시지는 쓰지 않는다.
 """
 
 import logging
 import os
-import subprocess
 import traceback
 from pathlib import Path
 
 from hermes_controller import config as cfg
-from hermes_controller import contextfile
+from hermes_controller import contextfile, project, session
 from hermes_controller.cedtaker import CedTakerError, build_request, failure_response, run_ced_taker
 from hermes_controller.githubapp import GithubApp, GithubAppError
-from hermes_controller.request import RequestError, needs_explanation, read_request, valid_delivery_id
+from hermes_controller.request import RequestError, read_request, request_path
 
 log = logging.getLogger("hermes_controller")
 
@@ -27,24 +28,12 @@ NOT_CONFIGURED = "not_configured"
 
 
 class _Failed(Exception):
-    """해설을 만들지 못했다. 사유 코드만 담는다."""
-
     def __init__(self, reason):
         self.reason = reason
         super().__init__(reason)
 
 
-def launch(command, delivery_id):
-    """testgate 래퍼를 백그라운드로 시작하고 기다리지 않는다. 표준 입출력을 닫고 새 세션으로 띄운다."""
-    subprocess.Popen(
-        list(command) + [delivery_id],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=True, close_fds=True, cwd=str(Path(command[0]).parent),
-    )
-
-
 def _where(exc):
-    """오류가 난 곳(파일 이름, 줄, 함수)만 돌려준다. 메시지는 돌려주지 않는다."""
     frames = traceback.extract_tb(exc.__traceback__)
     if not frames:
         return "?"
@@ -53,12 +42,11 @@ def _where(exc):
 
 
 def _explain(settings, request, env, app_factory, ced_runner):
-    """PR 정보를 가져와 해설 응답을 만든다. 못 만들면 _Failed(사유 코드)."""
     if not settings.ced_command:
         raise _Failed(NOT_CONFIGURED)
     try:
         app = app_factory(settings.github_app_url, env.get(settings.secret_env, ""), timeout=settings.github_timeout)
-        info = app.fetch_pr(request.repo, request.pr, request.commit)
+        info = app.fetch_pr(request.repo, request.pr, None)
     except GithubAppError as exc:
         raise _Failed(exc.reason) from None
     try:
@@ -68,70 +56,76 @@ def _explain(settings, request, env, app_factory, ced_runner):
 
 
 def _write(requests_dir, delivery_id, response):
-    """해설 파일을 쓴다. 쓸 수 없으면 기록만 남긴다. 너무 크면 사유만 담은 파일로 바꿔 쓴다."""
     try:
         contextfile.write_context(requests_dir, delivery_id, response)
         return True
     except contextfile.ContextWriteError as exc:
-        log.error("해설 파일을 쓰지 못함 id=%s reason=%s", delivery_id, exc.reason)
+        log.error("맥락 파일을 쓰지 못함 id=%s reason=%s", delivery_id, exc.reason)
         if exc.reason == contextfile.CONTEXT_TOO_LARGE:
             return _write(requests_dir, delivery_id, failure_response(exc.reason))
         return False
 
 
-def _prepare(delivery_id, settings, config_reason, env, app_factory, ced_runner):
-    """해설을 준비해 해설 파일을 쓴다. 한 줄짜리 결과 문자열을 돌려준다(시험과 기록용)."""
+def _prepare(settings, request, route, env, app_factory, ced_runner):
+    if not route.context:
+        return "skipped:route"
+    if request.target != "pull_request":
+        return "skipped:target"
     try:
-        request = read_request(settings.requests_dir, delivery_id)
-    except RequestError as exc:
-        log.warning("요청 파일을 읽지 못함 id=%s reason=%s", delivery_id, exc.reason)
-        return f"request:{exc.reason}"  # 래퍼가 자기 방식으로 처리한다. 쓸 해설 파일도 없다.
-    if not needs_explanation(request):
-        kind = "free" if request.free else "unsupported"
-        log.info("해설 건너뜀 id=%s kind=%s", delivery_id, kind)
-        return f"skipped:{kind}"
-    try:
-        if config_reason:
-            raise _Failed(config_reason)
         response = _explain(settings, request, env, app_factory, ced_runner)
     except _Failed as exc:
-        log.warning("해설을 만들지 못함 id=%s reason=%s", delivery_id, exc.reason)
-        _write(settings.requests_dir, delivery_id, failure_response(exc.reason))
+        log.warning("맥락을 만들지 못함 id=%s reason=%s", request.delivery_id, exc.reason)
+        _write(settings.requests_dir, request.delivery_id, failure_response(exc.reason))
         return f"failed:{exc.reason}"
-    wrote = _write(settings.requests_dir, delivery_id, response)
-    log.info("해설 준비 id=%s docs=%d notices=%d written=%s", delivery_id, len(response["docs"]), len(response["notices"]), wrote)
+    _write(settings.requests_dir, request.delivery_id, response)
+    log.info("맥락 준비 id=%s docs=%d", request.delivery_id, len(response["docs"]))
     return f"attached:{len(response['docs'])}" if response["docs"] else "empty"
 
 
-def run(delivery_id, env=None, config_path=None, app_factory=GithubApp, ced_runner=run_ced_taker, launcher=launch):
-    """파이프라인을 실행한다. 래퍼를 시작하지 못한 경우를 빼고는 예외를 밖으로 내지 않는다.
+def run(delivery_id, env=None, config_path=None, app_factory=GithubApp, ced_runner=run_ced_taker,
+        project_runner=project.run_project, renamer=session.rename):
+    """요청 하나를 처리하고 요약 사전을 돌려준다. 예외를 밖으로 내지 않는다.
 
-    돌려주는 값: {"explanation": 해설 단계의 결과, "wrapper": "started" 또는 "failed"}
+    {"context": 맥락 단계 결과, "project": 프로젝트 결과 또는 사유, "rename": 세션 이름 결과}
     """
     env = os.environ if env is None else env
-    summary = {"explanation": "none", "wrapper": "failed"}
-    wrapper = cfg.default_wrapper_command(env)  # 설정을 읽지 못해도 알려진 위치
+    summary = {"context": "none", "project": "not_started", "rename": "skipped"}
     try:
-        config_reason = None
-        try:
-            settings = cfg.load_settings(env, config_path)
-        except cfg.ConfigError as exc:
-            config_reason = exc.reason
-            settings = cfg.fallback_settings(env)
-        wrapper = settings.wrapper_command
-        summary["explanation"] = _prepare(delivery_id, settings, config_reason, env, app_factory, ced_runner)
-    except Exception as exc:  # noqa: BLE001 - 예상 밖 오류. 분석은 계속해야 한다.
-        log.error("해설 준비 중 예상 밖 오류 id=%s type=%s at=%s", delivery_id, type(exc).__name__, _where(exc))
-        summary["explanation"] = "error"
+        settings = cfg.load_settings(env, config_path)
+    except cfg.ConfigError as exc:
+        log.error("run: 설정을 읽지 못함 id=%s reason=%s", delivery_id, exc.reason)
+        return summary
+    try:
+        request = read_request(settings.requests_dir, delivery_id)
+    except RequestError as exc:
+        log.error("run: 요청 파일을 읽지 못함 id=%s reason=%s", delivery_id, exc.reason)
+        return summary
+    route = settings.route(request.route)
+    if route is None:
+        log.error("run: 규칙이 없음 id=%s route=%s", delivery_id, request.route)
+        return summary
+
+    result = None
+    try:
+        summary["context"] = _prepare(settings, request, route, env, app_factory, ced_runner)
+    except Exception as exc:  # noqa: BLE001 - 예상 밖 오류. 프로젝트는 그래도 실행한다.
+        log.error("맥락 준비 중 예상 밖 오류 id=%s type=%s at=%s", delivery_id, type(exc).__name__, _where(exc))
+        summary["context"] = "error"
     finally:
-        # 중단 신호(KeyboardInterrupt)가 와도 여기는 실행된다. 어떤 일이 있어도 분석은 시작한다.
+        # 중단 신호(KeyboardInterrupt)가 와도 여기는 실행된다.
         try:
-            launcher(wrapper, delivery_id)
-            summary["wrapper"] = "started"
-            log.info("래퍼 시작 id=%s explanation=%s", delivery_id, summary["explanation"])
-        except OSError as exc:
-            log.error("래퍼를 시작하지 못함 id=%s type=%s", delivery_id, type(exc).__name__)
+            result = project_runner(route.command, request_path(settings.requests_dir, delivery_id),
+                                    contextfile.context_path(settings.requests_dir, delivery_id), route.timeout)
+            summary["project"] = result["status"]
+        except project.ProjectError as exc:
+            summary["project"] = exc.reason
+        log.info("프로젝트 끝 id=%s route=%s context=%s project=%s", delivery_id, route.name, summary["context"], summary["project"])
+
+    if result and result["session_name"]:
+        try:
+            summary["rename"] = renamer(settings.home, settings.hermes_route, delivery_id, result["session_name"], settings.hermes_binary)
+        except Exception as exc:  # noqa: BLE001
+            log.error("세션 이름 변경 중 오류 id=%s type=%s", delivery_id, type(exc).__name__)
+            summary["rename"] = "failed"
+    log.info("run 끝 id=%s rename=%s", delivery_id, summary["rename"])
     return summary
-
-
-__all__ = ["run", "launch", "valid_delivery_id"]

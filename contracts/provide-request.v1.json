@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "repo": "acme/shop",
+  "title": "합계 로직 수정",
+  "description": "유저 balance를 합산할 때 음수 잔액은 제외하도록 고쳤다.",
+  "diff": "diff --git a/src/report.py b/src/report.py\nindex 1111111..2222222 100644\n--- a/src/report.py\n+++ b/src/report.py\n@@ -10,4 +10,4 @@ def total_balance(accounts):\n     x = 1\n-    total = sum(a.balance for a in accounts)\n+    total = sum(a.balance for a in accounts if a.balance > 0)\n     return total\ndiff --git a/pnpm-lock.yaml b/pnpm-lock.yaml\nindex 3333333..4444444 100644\n--- a/pnpm-lock.yaml\n+++ b/pnpm-lock.yaml\n@@ -1,2 +1,2 @@\n-balance: 1\n+balance: 2\n"
+}
