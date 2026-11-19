@@ -5,7 +5,16 @@
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "test": "PYTHONPATH=src python3 -m unittest discover -s tests -t ."
+    "test": "PYTHONPATH=src python3 -m unittest discover -s tests -t .",
+    "hermes:apply": "scripts/install.sh && scripts/subscribe.sh && pnpm hermes:check",
+    "hermes:check": "scripts/install.sh --check && scripts/subscribe.sh --check && bin/hermes-controller contracts-check ../hermes-test-gate ../hermes-ced-taker",
+    "hermes:rollback": "scripts/rollback.sh",
+    "mock:qa": "scripts/mock_post.sh qa",
+    "mock:plain": "scripts/mock_post.sh plain",
+    "mock:other-author": "scripts/mock_post.sh other-author",
+    "mock:dry": "for c in qa plain other-author; do MOCK_DRY_RUN=1 scripts/mock_post.sh $c; done",
+    "gateway:status": "curl -fsS http://127.0.0.1:8644/health && echo",
+    "logs": "tail -f \"${HERMES_HOME:-$HOME/.hermes}/logs/controller.log\" \"${HERMES_HOME:-$HOME/.hermes}/logs/testgate.log\""
   },
   "license": "ISC"
 }
