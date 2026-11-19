@@ -6,7 +6,7 @@
 
 - 이 저장소(hermes-controller)
 - ced-taker 저장소와 그 로컬 설정(볼트 위치)
-- testgate 저장소의 새 브랜치(시작 명령 설정과 참고 자료 파일 읽기). **아직 병합되지 않았다.**
+- testgate 저장소의 변경(시작 명령 설정과 참고 자료 파일 읽기). 로컬 main에 병합했다(2026-11-19). 푸시와 설치는 아직 하지 않았다.
 - github-app이 돌고 있고, 서명 키가 Hermes의 환경 변수로 들어가 있다(testgate가 지금 쓰는 것과 같다).
 
 ## 단계
@@ -24,7 +24,7 @@
    - `wrapper_command`를 쓰지 않으면 표준 설치 위치의 testgate 래퍼를 쓴다.
    - `ced_taker_command`가 없으면 해설을 만들지 않고, 보고서 비고에 `not_configured`가 남는다.
    - **환경 변수 이름을 기본값(`TESTGATE_GITHUB_APP_SECRET`)에서 바꾸면**, 그 이름을 Hermes 설정의 `terminal.env_passthrough`에도 등록해야 한다. Hermes는 웹훅 필터를 비밀을 걸러 낸 환경으로 실행하므로, 등록하지 않은 이름은 걸러진다. 기본 이름은 이미 등록돼 있다.
-2. **testgate 변경을 병합하고 설치한다.** 이 일은 testgate의 몫이다. testgate 저장소에서 `scripts/install.sh`를 실행한다.
+2. **testgate 변경을 병합하고 설치한다.** 이 일은 testgate의 몫이다. testgate 저장소에서 `scripts/install.sh`를 실행한다. 무엇이 바뀌는지는 [testgate-install.md](testgate-install.md)에 있다.
 3. **testgate 설정에 시작 명령을 적는다** (`testgate.json` 최상위, Git 제외).
    ```json
    "start_command": ["<이 저장소>/bin/hermes-controller"]

@@ -57,6 +57,7 @@ testgate (분석)
 
 - [LLMS.md](LLMS.md): 작업 규칙, 할 일, 백로그. AI 도구가 먼저 읽는다.
 - [docs/setup.md](docs/setup.md): 실제 환경에 반영하는 순서, 되돌리는 방법, Hermes 업데이트 뒤 확인할 것, 확인하지 못한 것.
+- [docs/testgate-install.md](docs/testgate-install.md): testgate의 install.sh가 바꾸는 것과 바꾸지 않는 것.
 
 ## 공개 저장소 원칙
 
