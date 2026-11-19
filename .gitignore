@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local data (personal paths, settings, logs)
+local/
+
+# Build output
+dist/
+build/
+
+# Editor settings
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc

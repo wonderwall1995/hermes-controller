@@ -1,0 +1,11 @@
+{
+  "name": "hermes-controller",
+  "version": "1.0.0",
+  "description": "",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "test": "PYTHONPATH=src python3 -m unittest discover -s tests -t ."
+  },
+  "license": "ISC"
+}
